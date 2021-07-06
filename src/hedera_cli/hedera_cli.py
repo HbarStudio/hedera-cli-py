@@ -3,7 +3,7 @@ import sys
 import cmd
 import getpass
 
-import colorama as cr
+from colorama import init, Fore, Back, Style
 from dotenv import load_dotenv
 from hedera import (
     Hbar,
@@ -19,6 +19,7 @@ from hedera import (
     TopicId,
     TopicMessageSubmitTransaction,
     )
+from ._version import version
 
 
 class HederaCli(cmd.Cmd):
@@ -31,11 +32,13 @@ class HederaCli(cmd.Cmd):
 # |  | |  |  ___/  (_|  |  ___/  | |  (_|  |
 # \__| |__/\____|\___,__|\____|__|  \___,__|
 #
+# :: hedera-cli :: v{}
 # github.com/wensheng/hedera-cli-py
 # =============================================================================
-Type help or ? to list commands.\n"""
+Type help or ? to list commands.\n""".format(version)
 
     def __init__(self, *args, **kwargs):
+        init()  # colorama
         super().__init__(*args, **kwargs)
         if "HEDERA_OPERATOR_ID" in os.environ:
             self.operator_id = AccountId.fromString(os.environ["HEDERA_OPERATOR_ID"])
@@ -57,9 +60,9 @@ Type help or ? to list commands.\n"""
 
     def set_prompt(self):
         if self.operator_id:
-            self.prompt = cr.Fore.YELLOW + '{}@['.format(self.operator_id.toString()) + cr.Fore.GREEN + self.network + cr.Fore.YELLOW + '] > ' + cr.Style.RESET_ALL
+            self.prompt = Fore.YELLOW + '{}@['.format(self.operator_id.toString()) + Fore.GREEN + self.network + Fore.YELLOW + '] > ' + Style.RESET_ALL
         else:
-            self.prompt = cr.Fore.YELLOW + 'null@[' + cr.Fore.GREEN + self.network + cr.Fore.YELLOW + '] > ' + cr.Style.RESET_ALL
+            self.prompt = Fore.YELLOW + 'null@[' + Fore.GREEN + self.network + Fore.YELLOW + '] > ' + Style.RESET_ALL
 
     def do_exit(self, arg):
         'exit Hedera cli'
@@ -67,15 +70,15 @@ Type help or ? to list commands.\n"""
 
     def do_setup(self, arg):
         'set operator id and key'
-        acc_id = input(cr.Fore.YELLOW + "Operator Account ID (0.0.xxxx): " + cr.Style.RESET_ALL)
-        acc_key = input(cr.Fore.YELLOW + "Private Key: " + cr.Style.RESET_ALL)
+        acc_id = input(Fore.YELLOW + "Operator Account ID (0.0.xxxx): " + Style.RESET_ALL)
+        acc_key = input(Fore.YELLOW + "Private Key: " + Style.RESET_ALL)
         try:
             self.operator_id = AccountId.fromString(acc_id)
             self.operator_key = PrivateKey.fromString(acc_key)
             self.client.setOperator(self.operator_id, self.operator_key)
-            print(cr.Fore.GREEN + "operator is set up")
+            print(Fore.GREEN + "operator is set up")
         except Exception:
-            print(cr.Fore.RED + "Invalid operator id or key")
+            print(Fore.RED + "Invalid operator id or key")
         self.set_prompt()
 
     def setup_network(self, name):
@@ -91,23 +94,23 @@ Type help or ? to list commands.\n"""
     def do_network(self, arg):
         'Switch network: available mainnet, testnet, previewnet'
         if arg == self.network:
-            print(cr.Fore.YELLOW + "no change")
+            print(Fore.YELLOW + "no change")
             self.set_prompt()
             return
 
         if arg in ("mainnet", "testnet", "previewnet"):
             self.setup_network(arg)
             self.operator_id = None
-            print(cr.Fore.GREEN + "you switched to {}, you must do `setup` again!".format(arg))
+            print(Fore.GREEN + "you switched to {}, you must do `setup` again!".format(arg))
         else:
-            print(cr.Fore.RED + "invalid network")
+            print(Fore.RED + "invalid network")
         self.set_prompt()
 
     def do_keygen(self, arg):
         'Generate a pair of private and public keys'
         prikey = PrivateKey.generate()
-        print(cr.Fore.YELLOW + "Private Key: " + cr.Fore.GREEN + prikey.toString())
-        print(cr.Fore.YELLOW + "Public Key: " + cr.Fore.GREEN + prikey.getPublicKey().toString())
+        print(Fore.YELLOW + "Private Key: " + Fore.GREEN + prikey.toString())
+        print(Fore.YELLOW + "Public Key: " + Fore.GREEN + prikey.getPublicKey().toString())
         self.set_prompt()
 
     def do_topic(self, arg):
@@ -118,7 +121,7 @@ Send message:
     topic send topic_id message [[messages]]"""
         args = arg.split()
         if args[0] not in ('create', 'send'):
-            print(cr.Fore.RED + "invalid topic command")
+            print(Fore.RED + "invalid topic command")
             self.set_prompt()
             return
 
@@ -134,7 +137,7 @@ Send message:
                 print(e)
         else:
             if len(args) < 3:
-                print(cr.Fore.RED + "need topicId and message")
+                print(Fore.RED + "need topicId and message")
             else:
                 try:
                     topicId = TopicId.fromString(args[1])
@@ -155,7 +158,7 @@ account balance:
     account balance [accountid]"""
         args = arg.split()
         if args[0] not in ('create', 'balance', 'delete', 'info'):
-            print(cr.Fore.RED + "invalid topic command")
+            print(Fore.RED + "invalid topic command")
             self.set_prompt()
             return
 
@@ -175,16 +178,16 @@ account balance:
         elif args[0] == "create":
             initHbars = int(input("Set initial Hbars > "))
             prikey = PrivateKey.generate()
-            print(cr.Fore.YELLOW + "New Private Key: " + cr.Fore.GREEN + prikey.toString())
+            print(Fore.YELLOW + "New Private Key: " + Fore.GREEN + prikey.toString())
             txn = (AccountCreateTransaction()
                    .setKey(prikey.getPublicKey())
                    .setInitialBalance(Hbar(initHbars))
                    .execute(self.client))
             receipt = txn.getReceipt(self.client)
-            print(cr.Fore.YELLOW + "New AccountId: " + cr.Fore.GREEN + receipt.accountId.toString())
+            print(Fore.YELLOW + "New AccountId: " + Fore.GREEN + receipt.accountId.toString())
         elif args[0] == "delete":
             if len(args) != 2:
-                print(cr.Fore.RED + "need accountId")
+                print(Fore.RED + "need accountId")
             else:
                 accountId = AccountId.fromString(args[1])
                 prikey = PrivateKey.fromString(input("Enter this account's private key > "))
@@ -196,11 +199,14 @@ account balance:
                        .sign(prikey)
                        .execute(self.client))
                 txn.getReceipt(self.client)
-                print(cr.Fore.YELLOW + "account deleted!" + cr.Fore.GREEN + txn.transactionId.toString())
+                print(Fore.YELLOW + "account deleted!" + Fore.GREEN + txn.transactionId.toString())
 
         self.set_prompt()
 
     def do_send(self, arg):
+        """send Hbars to another account:
+send 0.0.12345 10
+(send 10 hbars to account 0.0.12345)"""
         try:
             accountId = AccountId.fromString(input("Receipient account id: > "))
             hbars = input("amount of Hbars(minimum is 0.00000001): > ")
@@ -209,7 +215,7 @@ account balance:
                    .addHbarTransfer(self.operator_id, amount.negated())
                    .addHbarTransfer(accountId, amount)
                    .execute(self.client))
-            print(cr.Fore.YELLOW + "Hbar sent!" + cr.Fore.GREEN + txn.transactionId.toString())
+            print(Fore.YELLOW + "Hbar sent!" + Fore.GREEN + txn.transactionId.toString())
         except Exception as e:
             print(e)
 
@@ -222,5 +228,4 @@ if __name__ == "__main__":
     else:
         dotenv = ".env"
     load_dotenv(dotenv)
-    cr.init()
     HederaCli().cmdloop()
