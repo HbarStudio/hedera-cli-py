@@ -1,7 +1,6 @@
 import os
 import sys
 import cmd
-import getpass
 
 from colorama import init, Fore, Back, Style
 from dotenv import load_dotenv
@@ -23,6 +22,7 @@ from ._version import version
 
 
 class HederaCli(cmd.Cmd):
+    use_rawinput = False  # if True, colorama prompt will not work on Windows
     intro = """
 # =============================================================================
 #  __   __            __
@@ -70,8 +70,13 @@ Type help or ? to list commands.\n""".format(version)
 
     def do_setup(self, arg):
         'set operator id and key'
-        acc_id = input(Fore.YELLOW + "Operator Account ID (0.0.xxxx): " + Style.RESET_ALL)
-        acc_key = input(Fore.YELLOW + "Private Key: " + Style.RESET_ALL)
+        # these doesn't work on Windows
+        # acc_id = input(Fore.YELLOW + "Operator Account ID (0.0.xxxx): " + Style.RESET_ALL)
+        # acc_key = input(Fore.YELLOW + "Private Key: " + Style.RESET_ALL)
+        print(Fore.YELLOW + "Operator Account ID (0.0.xxxx): " + Style.RESET_ALL, end='')
+        acc_id = input()
+        print(Fore.YELLOW + "Private Key: " + Style.RESET_ALL, end='')
+        acc_key = input()
         try:
             self.operator_id = AccountId.fromString(acc_id)
             self.operator_key = PrivateKey.fromString(acc_key)
@@ -120,7 +125,7 @@ Create Topic:
 Send message:
     topic send topic_id message [[messages]]"""
         args = arg.split()
-        if args[0] not in ('create', 'send'):
+        if not args or args[0] not in ('create', 'send'):
             print(Fore.RED + "invalid topic command")
             self.set_prompt()
             return
@@ -157,8 +162,8 @@ Create account:
 account balance:
     account balance [accountid]"""
         args = arg.split()
-        if args[0] not in ('create', 'balance', 'delete', 'info'):
-            print(Fore.RED + "invalid topic command")
+        if not args or args[0] not in ('create', 'balance', 'delete', 'info'):
+            print(Fore.RED + "invalid account command")
             self.set_prompt()
             return
 
