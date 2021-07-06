@@ -95,7 +95,6 @@ Type help or ? to list commands.\n""".format(version)
         else:
             self.client = Client.forTestnet()
 
-
     def do_network(self, arg):
         'Switch network: available mainnet, testnet, previewnet'
         if arg == self.network:
@@ -226,7 +225,7 @@ send 0.0.12345 10
 
         self.set_prompt()
 
-            
+
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         dotenv = sys.argv[1]
