@@ -1,6 +1,7 @@
 import os
 import sys
 import cmd
+import math
 
 from colorama import init, Fore, Back, Style
 from dotenv import load_dotenv
@@ -17,25 +18,77 @@ from hedera import (
     TopicCreateTransaction,
     TopicId,
     TopicMessageSubmitTransaction,
+    FileId,
+    FileInfoQuery,
+    FileCreateTransaction,
+    FileAppendTransaction,
+    FileContentsQuery,
     )
-from ._version import version
+from jnius import autoclass
+from hedera_cli._version import version
+from hedera_cli.price import get_Hbar_price
+if sys.platform == "win32":
+    from msvcrt import getch
+else:
+    from getch import getch
+
+
+#List = autoclass('java.util.List')
+ArrayList = autoclass('java.util.ArrayList')
+
+
+FILE_CREATE_SIZE = 5000  # don't know exactly the size, 5000 works, 6000 doesn't
+CHUNK_SIZE = 1024
+
+NODE_LIST = ArrayList()
+
+# Don't know how to get a list of nodes, so hard-code it here
+# for i in (4, 6, 8):
+#    NODE_LIST.add(AccountId.fromString("0.0." + str(i)))
+
+# TODO: only List of 1 works, but which node?
+NODE_LIST.add(AccountId.fromString("0.0.4"))
+
+
+def getc():
+    c = getch()
+    if hasattr(c, 'decode'):
+        return c.decode()
+    return c
+
+
+def getPrivateKey():
+    passwd = ''
+    while True:
+        c = getc()
+        if c == '\r' or c == '\n':
+            break
+        print('*', end='', flush=True)
+        passwd += c
+    print()
+
+    return passwd
+
+current_price = get_Hbar_price()
 
 
 class HederaCli(cmd.Cmd):
     use_rawinput = False  # if True, colorama prompt will not work on Windows
     intro = """
 # =============================================================================
-#  __   __            __
-# |  | |  |          |  |
-# |  |_|  | ____  ___|  | ____ __ __ _____
-# |   _   |/ __ \/  _`  |/ __ \  '__/  _  `|
-# |  | |  |  ___/  (_|  |  ___/  | |  (_|  |
-# \__| |__/\____|\___,__|\____|__|  \___,__|
-#
+#""" + Fore.WHITE + Back.BLUE + "  __   __            __                     " + Style.RESET_ALL + """
+#""" + Fore.WHITE + Back.BLUE + " |  | |  |          |  |                    " + Style.RESET_ALL + """
+#""" + Fore.WHITE + Back.BLUE + " |  |_|  | ____  ___|  | ____ __ __ _____   " + Style.RESET_ALL + """
+#""" + Fore.WHITE + Back.BLUE + " |   _   |/ __ \/  _`  |/ __ \  '__/  _  `| " + Style.RESET_ALL + """
+#""" + Fore.WHITE + Back.BLUE + " |  | |  |  ___/  (_|  |  ___/  | |  (_|  | " + Style.RESET_ALL + """
+#""" + Fore.WHITE + Back.BLUE + " \__| |__/\____|\___,__|\____|__|  \___,__| " + Style.RESET_ALL + """
+#""" + Fore.WHITE + Back.BLUE + "                                            " + Style.RESET_ALL + """
 # :: hedera-cli :: v{}
+# current Hbar price: {}
+#
 # github.com/wensheng/hedera-cli-py
 # =============================================================================
-Type help or ? to list commands.\n""".format(version)
+Type help or ? to list commands.\n""".format(version, current_price)
 
     def __init__(self, *args, **kwargs):
         init()  # colorama
@@ -52,6 +105,7 @@ Type help or ? to list commands.\n""".format(version)
         self.setup_network(self.network)
         if self.operator_id and self.operator_key:
             self.client.setOperator(self.operator_id, self.operator_key)
+        self.hbar_price = current_price
         self.set_prompt()
 
     def emptyline(self):
@@ -64,6 +118,11 @@ Type help or ? to list commands.\n""".format(version)
         else:
             self.prompt = Fore.YELLOW + 'null@[' + Fore.GREEN + self.network + Fore.YELLOW + '] > ' + Style.RESET_ALL
 
+    def err_return(self, msg):
+        print(Fore.RED + msg)
+        self.set_prompt()
+        return
+
     def do_exit(self, arg):
         'exit Hedera cli'
         exit()
@@ -75,8 +134,8 @@ Type help or ? to list commands.\n""".format(version)
         # acc_key = input(Fore.YELLOW + "Private Key: " + Style.RESET_ALL)
         print(Fore.YELLOW + "Operator Account ID (0.0.xxxx): " + Style.RESET_ALL, end='')
         acc_id = input()
-        print(Fore.YELLOW + "Private Key: " + Style.RESET_ALL, end='')
-        acc_key = input()
+        print(Fore.YELLOW + "Private Key: " + Style.RESET_ALL, end='', flush=True)
+        acc_key = getPrivateKey()
         try:
             self.operator_id = AccountId.fromString(acc_id)
             self.operator_key = PrivateKey.fromString(acc_key)
@@ -98,9 +157,7 @@ Type help or ? to list commands.\n""".format(version)
     def do_network(self, arg):
         'Switch network: available mainnet, testnet, previewnet'
         if arg == self.network:
-            print(Fore.YELLOW + "no change")
-            self.set_prompt()
-            return
+            return self.err_return("no change")
 
         if arg in ("mainnet", "testnet", "previewnet"):
             self.setup_network(arg)
@@ -125,9 +182,7 @@ Send message:
     topic send topic_id message [[messages]]"""
         args = arg.split()
         if not args or args[0] not in ('create', 'send'):
-            print(Fore.RED + "invalid topic command")
-            self.set_prompt()
-            return
+            return self.err_return("invalid topic command")
 
         if args[0] == "create":
             txn = TopicCreateTransaction()
@@ -162,9 +217,7 @@ account balance:
     account balance [accountid]"""
         args = arg.split()
         if not args or args[0] not in ('create', 'balance', 'delete', 'info'):
-            print(Fore.RED + "invalid account command")
-            self.set_prompt()
-            return
+            return self.err_return("invalid account command")
 
         if args[0] == "balance":
             try:
@@ -224,6 +277,163 @@ send 0.0.12345 10
             print(e)
 
         self.set_prompt()
+
+    def get_local_file_content(self, filepath, cur_size=0):
+        if not os.path.isfile(filepath):
+            self.err_return("file {} does not exist".format(filepath))
+            return None, 0
+        filesize = os.path.getsize(filepath)
+        if (filesize + cur_size) > 1024 * 1000:
+            self.err_return("file is too large, the maximum file size is 1024 kB")
+            return None, 0
+
+        with open(filepath) as fh:
+            return fh.read(), filesize
+
+    def get_content_from_input(self):
+        print("Enter your file content line by line, enter EOF to finish:\n") 
+        lines = []
+        while True:
+            line = input()
+            if line.strip() == "EOF":
+                break
+            lines.append(line)
+        contents = '\n'.join(lines)
+        filesize = len(contents)
+        return contents, filesize
+
+    def do_file(self, arg):
+        """Hedera File Service: create | contents | append | delete
+        file create [file_path]
+        file info fileId
+        file contents fileId
+        file append fileId [file_path]
+        file delete fileId
+        """
+        args = arg.split()
+        if not args or args[0] not in ('create', 'contents', 'info', 'append', 'delete'):
+            return self.err_return("invalid file command")
+
+        if args[0] == "create":
+            if len(args) > 1:
+                contents, filesize = self.get_local_file_content(args[1])
+                if not contents:
+                    return
+            else:
+                contents, filesize = self.get_content_from_input()
+                if filesize == 0:
+                    return self.err_return("no content")
+
+            # calculate price
+            # single sig only
+            # use 0.039 + $0.011 per 1kB
+            cost = 0.039 + 0.011 * math.ceil(filesize / 1000.0)
+            self.hbar_price = get_Hbar_price()
+            cost_in_hbar = cost / self.hbar_price 
+            answer = input("It will cost about {:.5f} hbars to create this file, is this OK? type yes or no: ".format(cost_in_hbar))
+            if answer.lower() == "yes":
+                first_chunk = contents if filesize <= FILE_CREATE_SIZE else contents[:FILE_CREATE_SIZE]
+                try:
+                    txn = (FileCreateTransaction()
+                           .setKeys(self.operator_key.getPublicKey())
+                           .setContents(first_chunk)
+                           .setMaxTransactionFee(Hbar(1))
+                           .execute(self.client))
+                    receipt = txn.getReceipt(self.client)
+                    fileId = receipt.fileId
+
+                    if filesize > FILE_CREATE_SIZE:
+                        num_chunks = math.ceil((filesize - FILE_CREATE_SIZE) / CHUNK_SIZE)
+                        max_cost = math.ceil(cost_in_hbar)
+                        txn = (FileAppendTransaction()
+                               .setNodeAccountIds(NODE_LIST)
+                               .setFileId(fileId)
+                               .setContents(contents[FILE_CREATE_SIZE:])
+                               .setMaxChunks(num_chunks)
+                               .setMaxTransactionFee(Hbar(max_cost))
+                               .freezeWith(self.client)
+                               .execute(self.client))
+                        receipt = txn.getReceipt(self.client)
+
+                    print("File created.  FileId =", fileId.toString())
+
+                except Exception as e:
+                    print(e)
+
+            else:
+                print("canceled")
+
+        elif args[0] == "append":
+            if len(args) < 2:
+                return self.err_return("fileId is needed")
+            
+            try:
+                fileId = FileId.fromString(args[1])
+                info = FileInfoQuery().setFileId(fileId).execute(self.client)
+                print("filesize before appending is ", info.size)
+
+                if len(args) > 2:
+                    contents, filesize = self.get_local_file_content(args[2], info.size)
+                    if not contents:
+                        return
+                else:
+                    contents, filesize = self.get_content_from_input()
+                    if filesize == 0:
+                        return self.err_return("no content")
+
+                cost = 0.039 + 0.011 * math.ceil(filesize / 1000.0)
+                self.hbar_price = get_Hbar_price()
+                cost_in_hbar = cost / self.hbar_price
+                max_cost = math.ceil(cost_in_hbar + 0.5)  # 0.5 is margin 
+                answer = input("It will cost about {:.5f} hbars to append to this file, is this OK? type yes or no: ".format(cost_in_hbar))
+                if answer.lower() == "yes":
+                    num_chunks = math.ceil(filesize / CHUNK_SIZE)
+                    txn = (FileAppendTransaction()
+                           .setNodeAccountIds(NODE_LIST)
+                           .setFileId(fileId)
+                           .setContents(contents)
+                           .setMaxChunks(num_chunks)
+                           .setMaxTransactionFee(Hbar(max_cost))
+                           .freezeWith(self.client)
+                           .execute(self.client))
+                    receipt = txn.getReceipt(self.client)
+                    print("File appended")
+                else:
+                    print("canceled")
+
+            except Exception as e:
+                print(e)
+
+        elif args[0] == "info":
+            if len(args) < 2:
+                return self.err_return("fileId is needed")
+            
+            try:
+                fileId = FileId.fromString(args[1])
+                info = FileInfoQuery().setFileId(fileId).execute(self.client)
+                print("file memo:", info.fileMemo)
+                print("file size:", info.size)
+                print("expires:", info.expirationTime.toString())
+            except Exception as e:
+                print(e)
+
+        elif args[0] == "contents":
+            if len(args) < 2:
+                return self.err_return("fileId is needed")
+            
+            try:
+                fileId = FileId.fromString(args[1])
+                resp = FileContentsQuery().setFileId(fileId).execute(self.client)
+                contents = resp.toStringUtf8()
+                with open(args[1], 'w') as fh:
+                    fh.write(contents)
+                print()
+                print(Fore.GREEN + "file is saved as {}.  Here is a preview:".format(args[1]))
+                print(Style.RESET_ALL)
+                print(contents[:1024])
+                print()
+            except Exception as e:
+                print(e)
 
 
 if __name__ == "__main__":

@@ -1,2 +1,3 @@
 file
 token
+replace private key char with *
