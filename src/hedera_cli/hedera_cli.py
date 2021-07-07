@@ -2,7 +2,9 @@ import os
 import sys
 import cmd
 import math
+import base64
 
+import requests
 from colorama import init, Fore, Back, Style
 from dotenv import load_dotenv
 from hedera import (
@@ -39,6 +41,12 @@ ArrayList = autoclass('java.util.ArrayList')
 
 FILE_CREATE_SIZE = 5000  # don't know exactly the size, 5000 works, 6000 doesn't
 CHUNK_SIZE = 1024
+
+mirror_address = {
+    "testnet": "https://testnet.mirrornode.hedera.com",
+    "mainnet": "https://mainnet-public.mirrornode.hedera.com",
+    "previewnet": "https://previewnet.mirrornode.hedera.com",
+    }
 
 
 def getc():
@@ -184,9 +192,11 @@ Type help or ? to list commands.\n""".format(version, current_price)
         topic create [memo]  (create a topic with an optional memo) 
         topic info topic_id  (get info about a topic)
         topic send topic_id message [[message]]  (send message to topic_id)
+        topic get topic_id [sequence_number]  (get topic message(s).  If you specify a sequence_number,
+                                               you get one message, otherwise, you get all the messages on the topic)
         """
         args = arg.split()
-        if not args or args[0] not in ('create', 'send', 'info'):
+        if not args or args[0] not in ('create', 'send', 'info', "get"):
             return self.err_return("invalid topic command")
 
         if args[0] == "create":
@@ -231,19 +241,46 @@ Type help or ? to list commands.\n""".format(version, current_price)
             except Exception as e:
                 print(e)
 
-        else:
-            if len(args) < 3:
-                print(Fore.RED + "need topicId and message")
+        elif args[0] == "get":
+            # this does not use SDK, it use mirror node REST API
+            if len(args) < 2:
+                return self.err_return("need topicId")
+
+            try:
+                TopicId.fromString(args[1])
+            except Exception:
+                return self.err_return("topicId not valid")
+
+
+            url = "{}/api/v1/topics/{}/messages".format(mirror_address[self.network], args[1])
+            if len(args) > 2:
+                if args[2].isnumeric():
+                    seq_num = int(args[2])
+                    req = requests.get(url, params={"sequenceNumber": seq_num})
+                else:
+                    return self.err_return("invalid sequence number")
             else:
-                try:
-                    topicId = TopicId.fromString(args[1])
-                    txn = (TopicMessageSubmitTransaction()
-                           .setTopicId(topicId)
-                           .setMessage(" ".join(args[2:])))
-                    receipt = txn.execute(self.client).getReceipt(self.client)
-                    print("message sent, sequence #: ", receipt.topicSequenceNumber)
-                except Exception as e:
-                    print(e)
+                req = requests.get(url)
+            data = req.json()
+            msgs = data['messages']
+            msgs.sort(key=lambda x: x['sequence_number'])
+            for msg in msgs:
+                print("sequence_number:", msg['sequence_number'])
+                print("consensus_timestamp:", msg['consensus_timestamp'])
+                print(base64.b64decode(msg['message']).decode())
+
+        elif args[0] == "send":
+            if len(args) < 3:
+                return self.err_return("need topicId and message")
+            try:
+                topicId = TopicId.fromString(args[1])
+                txn = (TopicMessageSubmitTransaction()
+                       .setTopicId(topicId)
+                       .setMessage(" ".join(args[2:])))
+                receipt = txn.execute(self.client).getReceipt(self.client)
+                print("message sent, sequence #: ", receipt.topicSequenceNumber)
+            except Exception as e:
+                print(e)
         self.set_prompt()
 
     def do_account(self, arg):

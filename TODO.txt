@@ -2,9 +2,11 @@ token
 readline broken on Linux
 file docstring
 file memo
+py3.9 problem with pyjnius
 
 ✓ account - info | delete
 ✓ file 
+✓ topic get message
 ✓ replace private key char with *
 ✓ check java
 ✓ file appending nodeId: https://github.com/hashgraph/hedera-sdk-java/issues/546
