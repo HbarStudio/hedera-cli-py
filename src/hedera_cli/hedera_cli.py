@@ -124,11 +124,13 @@ Type help or ? to list commands.\n""".format(version, current_price)
         return
 
     def do_exit(self, arg):
-        'exit Hedera cli'
+        'exit hedera-cli'
         exit()
 
     def do_setup(self, arg):
-        'set operator id and key'
+        """Set up hedera client by setting operator id and key.
+        setup  (no argument)
+        """
         # these doesn't work on Windows
         # acc_id = input(Fore.YELLOW + "Operator Account ID (0.0.xxxx): " + Style.RESET_ALL)
         # acc_key = input(Fore.YELLOW + "Private Key: " + Style.RESET_ALL)
@@ -155,7 +157,11 @@ Type help or ? to list commands.\n""".format(version, current_price)
             self.client = Client.forTestnet()
 
     def do_network(self, arg):
-        'Switch network: available mainnet, testnet, previewnet'
+        """Switch network: mainnet | testnet | previewnet
+        network mainnet
+        network testnet
+        network previewnet
+        """
         if arg == self.network:
             return self.err_return("no change")
 
@@ -168,7 +174,9 @@ Type help or ? to list commands.\n""".format(version, current_price)
         self.set_prompt()
 
     def do_keygen(self, arg):
-        'Generate a pair of private and public keys'
+        """Generate a pair of private and public keys
+        keygen  (no argument)
+        """
         prikey = PrivateKey.generate()
         print(Fore.YELLOW + "Private Key: " + Fore.GREEN + prikey.toString())
         print(Fore.YELLOW + "Public Key: " + Fore.GREEN + prikey.getPublicKey().toString())
@@ -176,10 +184,9 @@ Type help or ? to list commands.\n""".format(version, current_price)
 
     def do_topic(self, arg):
         """HCS Topic: create send
-Create Topic:
-    topic create [memo]
-Send message:
-    topic send topic_id message [[messages]]"""
+        topic create [memo]  (create a topic with an optional memo) 
+        topic send topic_id message [[message]]  (send message to topic_id)
+        """
         args = arg.split()
         if not args or args[0] not in ('create', 'send'):
             return self.err_return("invalid topic command")
@@ -211,10 +218,10 @@ Send message:
 
     def do_account(self, arg):
         """account: create | balance | delete | info
-Create account:
-    account create
-account balance:
-    account balance [accountid]"""
+        account create  (create an account, account id and privatekey will be printed)
+        account balance [accountid]  (get account balance for current account if no accountId,
+                                      or for a different account if accountId is provided)
+        """
         args = arg.split()
         if not args or args[0] not in ('create', 'balance', 'delete', 'info'):
             return self.err_return("invalid account command")
@@ -262,8 +269,8 @@ account balance:
 
     def do_send(self, arg):
         """send Hbars to another account:
-send 0.0.12345 10
-(send 10 hbars to account 0.0.12345)"""
+        send 0.0.12345 10  (send 10 hbars to account 0.0.12345)
+        """
         try:
             accountId = AccountId.fromString(input("Receipient account id: > "))
             hbars = input("amount of Hbars(minimum is 0.00000001): > ")
