@@ -19,6 +19,7 @@ from hedera import (
     TopicCreateTransaction,
     TopicId,
     TopicMessageSubmitTransaction,
+    TopicInfoQuery,
     FileId,
     FileInfoQuery,
     FileCreateTransaction,
@@ -181,10 +182,11 @@ Type help or ? to list commands.\n""".format(version, current_price)
     def do_topic(self, arg):
         """HCS Topic: create send
         topic create [memo]  (create a topic with an optional memo) 
+        topic info topic_id  (get info about a topic)
         topic send topic_id message [[message]]  (send message to topic_id)
         """
         args = arg.split()
-        if not args or args[0] not in ('create', 'send'):
+        if not args or args[0] not in ('create', 'send', 'info'):
             return self.err_return("invalid topic command")
 
         if args[0] == "create":
@@ -197,6 +199,38 @@ Type help or ? to list commands.\n""".format(version, current_price)
                 print("New topic created: ", receipt.topicId.toString())
             except Exception as e:
                 print(e)
+        elif args[0] == "info":
+            if len(args) < 2:
+                return self.err_return("need topicId")
+
+            try:
+                topicId = TopicId.fromString(args[1])
+                info = TopicInfoQuery().setTopicId(topicId).execute(self.client)
+                print("\n{:} info:".format(topicId.toString()))
+                print("=========================")
+                print("memo :", info.topicMemo)
+                print("adminKey :", end="")
+                if info.adminKey:
+                    print(info.adminKey.toString())
+                else:
+                    print()
+                print("submitKey :", end="")
+                if info.submitKey:
+                    print(info.submitKey.toString())
+                else:
+                    print()
+                print("sequence# :", info.sequenceNumber)
+                print("expires :", info.expirationTime.toString())
+                print("autoRenewAccountId :", end="")
+                if info.autoRenewAccountId:
+                    print(info.autoRenewAccountId.toString())
+                else:
+                    print()
+                print("autoRenewPeriod :", info.autoRenewPeriod.toDays(), "days")
+
+            except Exception as e:
+                print(e)
+
         else:
             if len(args) < 3:
                 print(Fore.RED + "need topicId and message")
@@ -216,13 +250,13 @@ Type help or ? to list commands.\n""".format(version, current_price)
         """account: create | balance | delete | info
         account create  (create an account, account id and privatekey will be printed)
 
-        account info [accountId]  (get account info for current account if no accountId is provided,
+        account info [accoun_id]  (get account info for current account if no accountId is provided,
                                    or for a different account if accountId is provided)
 
-        account balance [accountId]  (get account balance for current account if no accountId,
+        account balance [account_id]  (get account balance for current account if no accountId,
                                       or for a different account if accountId is provided)
 
-        account delete accountId  (delete the account identified by accountId.
+        account delete account_id  (delete the account identified by accountId.
                                    you will be prompted for that account's private key)
         """
         args = arg.split()
@@ -348,10 +382,10 @@ Type help or ? to list commands.\n""".format(version, current_price)
     def do_file(self, arg):
         """Hedera File Service: create | contents | append | delete
         file create [file_path]
-        file info fileId
-        file contents fileId
-        file append fileId [file_path]
-        file delete fileId
+        file info file_id
+        file contents file_id
+        file append file_id [file_path]
+        file delete file_id
         """
         args = arg.split()
         if not args or args[0] not in ('create', 'contents', 'info', 'append', 'delete'):

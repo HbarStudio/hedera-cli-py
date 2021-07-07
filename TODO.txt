@@ -1,5 +1,7 @@
 token
 readline broken on Linux
+file docstring
+file memo
 
 ✓ account - info | delete
 ✓ file 
