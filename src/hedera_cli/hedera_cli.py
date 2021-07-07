@@ -10,6 +10,7 @@ from hedera import (
     Client,
     PrivateKey,
     AccountId,
+    AccountInfoQuery,
     AccountCreateTransaction,
     AccountDeleteTransaction,
     AccountBalanceQuery,
@@ -24,7 +25,7 @@ from hedera import (
     FileAppendTransaction,
     FileContentsQuery,
     )
-from jnius import autoclass
+from jnius import autoclass, cast
 from hedera_cli._version import version
 from hedera_cli.price import get_Hbar_price
 if sys.platform == "win32":
@@ -33,21 +34,10 @@ else:
     from getch import getch
 
 
-#List = autoclass('java.util.List')
 ArrayList = autoclass('java.util.ArrayList')
-
 
 FILE_CREATE_SIZE = 5000  # don't know exactly the size, 5000 works, 6000 doesn't
 CHUNK_SIZE = 1024
-
-NODE_LIST = ArrayList()
-
-# Don't know how to get a list of nodes, so hard-code it here
-# for i in (4, 6, 8):
-#    NODE_LIST.add(AccountId.fromString("0.0." + str(i)))
-
-# TODO: only List of 1 works, but which node?
-NODE_LIST.add(AccountId.fromString("0.0.4"))
 
 
 def getc():
@@ -147,6 +137,12 @@ Type help or ? to list commands.\n""".format(version, current_price)
             print(Fore.RED + "Invalid operator id or key")
         self.set_prompt()
 
+    def one_node(self):   
+        node_list = ArrayList()
+        # just pick the first node, for java sdk client, there're 5
+        node_list.add(self.client.network.nodes.toArray()[0].accountId)
+        return node_list
+
     def setup_network(self, name):
         self.network = name
         if name == "mainnet":
@@ -219,8 +215,15 @@ Type help or ? to list commands.\n""".format(version, current_price)
     def do_account(self, arg):
         """account: create | balance | delete | info
         account create  (create an account, account id and privatekey will be printed)
-        account balance [accountid]  (get account balance for current account if no accountId,
+
+        account info [accountId]  (get account info for current account if no accountId is provided,
+                                   or for a different account if accountId is provided)
+
+        account balance [accountId]  (get account balance for current account if no accountId,
                                       or for a different account if accountId is provided)
+
+        account delete accountId  (delete the account identified by accountId.
+                                   you will be prompted for that account's private key)
         """
         args = arg.split()
         if not args or args[0] not in ('create', 'balance', 'delete', 'info'):
@@ -249,27 +252,60 @@ Type help or ? to list commands.\n""".format(version, current_price)
                    .execute(self.client))
             receipt = txn.getReceipt(self.client)
             print(Fore.YELLOW + "New AccountId: " + Fore.GREEN + receipt.accountId.toString())
+        elif args[0] == "info":
+            try:
+                if len(args) > 1:
+                    accountId = AccountId.fromString(args[1])
+                else:
+                    accountId = self.operator_id
+                info = AccountInfoQuery().setAccountId(accountId).execute(self.client)
+                print("\n{:} info:".format(accountId.toString()))
+                print("=========================")
+                print("hbar balance :", info.balance.toString())
+                # info.key is either PublicKey or KeyList
+                if info.key.getClass().getName().endswith("KeyList"):
+                    print("public key list:")
+                    kl = cast("com.hedera.hashgraph.sdk.KeyList", info.key)
+                    print("\tthreshold: ", kl.threshold)
+                    for k in kl.toArray():
+                        print("\t", k.toString())
+                else:
+                    print("public key :", info.key.toString())
+                print("isReceiverSignatureRequired? :", info.isReceiverSignatureRequired)
+                print("tokenRelationships :")
+                for tokenId in info.tokenRelationships.keySet().toArray():
+                    rel = info.tokenRelationships[tokenId]
+                    # print("{}.{}.{}".format(tokenId.shard, tokenId.realm, tokenId.num))
+                    print("{:20} symbol: {:6}  kycStatus: {}   freezeStatus: {}   balance: {} ".format(
+                          tokenId.toString(), rel.symbol, rel.kycStatus, rel.freezeStatus, rel.balance))
+                print()
+            except Exception as e:
+                print(e)
+
         elif args[0] == "delete":
             if len(args) != 2:
                 print(Fore.RED + "need accountId")
             else:
-                accountId = AccountId.fromString(args[1])
-                prikey = PrivateKey.fromString(input("Enter this account's private key > "))
-                txn = (AccountDeleteTransaction()
-                       .setAccountId(accountId)
-                       .setTransferAccountId(self.operator_id)
-                       .setTransactionId(TransactionId.generate(accountId))
-                       .freezeWith(self.client)
-                       .sign(prikey)
-                       .execute(self.client))
-                txn.getReceipt(self.client)
-                print(Fore.YELLOW + "account deleted!" + Fore.GREEN + txn.transactionId.toString())
+                try:
+                    accountId = AccountId.fromString(args[1])
+                    prikey = PrivateKey.fromString(input("Enter this account's private key > "))
+                    txn = (AccountDeleteTransaction()
+                           .setAccountId(accountId)
+                           .setTransferAccountId(self.operator_id)
+                           .setTransactionId(TransactionId.generate(accountId))
+                           .freezeWith(self.client)
+                           .sign(prikey)
+                           .execute(self.client))
+                    txn.getReceipt(self.client)
+                    print(Fore.YELLOW + "account deleted!" + Fore.GREEN + txn.transactionId.toString())
+                except Exception as e:
+                    print(e)
 
         self.set_prompt()
 
     def do_send(self, arg):
         """send Hbars to another account:
-        send 0.0.12345 10  (send 10 hbars to account 0.0.12345)
+        send  (no argument, you will prompted for recipient account and amount)
         """
         try:
             accountId = AccountId.fromString(input("Receipient account id: > "))
@@ -353,7 +389,7 @@ Type help or ? to list commands.\n""".format(version, current_price)
                         num_chunks = math.ceil((filesize - FILE_CREATE_SIZE) / CHUNK_SIZE)
                         max_cost = math.ceil(cost_in_hbar)
                         txn = (FileAppendTransaction()
-                               .setNodeAccountIds(NODE_LIST)
+                               .setNodeAccountIds(self.one_node())
                                .setFileId(fileId)
                                .setContents(contents[FILE_CREATE_SIZE:])
                                .setMaxChunks(num_chunks)
@@ -396,7 +432,7 @@ Type help or ? to list commands.\n""".format(version, current_price)
                 if answer.lower() == "yes":
                     num_chunks = math.ceil(filesize / CHUNK_SIZE)
                     txn = (FileAppendTransaction()
-                           .setNodeAccountIds(NODE_LIST)
+                           .setNodeAccountIds(self.one_node())
                            .setFileId(fileId)
                            .setContents(contents)
                            .setMaxChunks(num_chunks)
