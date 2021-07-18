@@ -58,6 +58,8 @@ Set up the client.
     topic create [memo]  (create a topic with an optional memo)
     topic info topic_id  (get info about a topic)
     topic send topic_id message [[message]]  (send message to topic_id)
+    topic get topic_id [sequence_number]  (get topic message(s).  If you specify a sequence_number,
+                                           you get one message, otherwise, you get all the messages on the topic)
 
 ### keygen
 

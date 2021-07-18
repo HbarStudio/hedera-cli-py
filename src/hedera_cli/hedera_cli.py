@@ -22,11 +22,17 @@ from hedera import (
     TopicId,
     TopicMessageSubmitTransaction,
     TopicInfoQuery,
+    TokenId,
     FileId,
     FileInfoQuery,
     FileCreateTransaction,
     FileAppendTransaction,
     FileContentsQuery,
+    FileDeleteTransaction,
+    TokenCreateTransaction,
+    TokenAssociateTransaction,
+    TokenInfoQuery,
+    TokenGrantKycTransaction,
     )
 from jnius import autoclass, cast
 from hedera_cli._version import version
@@ -72,16 +78,16 @@ current_price = get_Hbar_price()
 
 
 class HederaCli(cmd.Cmd):
-    use_rawinput = False  # if True, colorama prompt will not work on Windows
+    #use_rawinput = False  # if True, colorama prompt will not work on Windows
     intro = """
 # =============================================================================
-#""" + Fore.WHITE + Back.BLUE + "  __   __            __                     " + Style.RESET_ALL + """
-#""" + Fore.WHITE + Back.BLUE + " |  | |  |          |  |                    " + Style.RESET_ALL + """
-#""" + Fore.WHITE + Back.BLUE + " |  |_|  | ____  ___|  | ____ __ __ _____   " + Style.RESET_ALL + """
-#""" + Fore.WHITE + Back.BLUE + " |   _   |/ __ \/  _`  |/ __ \  '__/  _  `| " + Style.RESET_ALL + """
-#""" + Fore.WHITE + Back.BLUE + " |  | |  |  ___/  (_|  |  ___/  | |  (_|  | " + Style.RESET_ALL + """
-#""" + Fore.WHITE + Back.BLUE + " \__| |__/\____|\___,__|\____|__|  \___,__| " + Style.RESET_ALL + """
-#""" + Fore.WHITE + Back.BLUE + "                                            " + Style.RESET_ALL + """
+# """ + Fore.WHITE + Back.BLUE + "  __   __            __                     " + Style.RESET_ALL + """
+# """ + Fore.WHITE + Back.BLUE + " |  | |  |          |  |                    " + Style.RESET_ALL + """
+# """ + Fore.WHITE + Back.BLUE + " |  |_|  | ____  ___|  | ____ __ __ _____   " + Style.RESET_ALL + """
+# """ + Fore.WHITE + Back.BLUE + " |   _   |/ __ \/  _`  |/ __ \  '__/  _  `| " + Style.RESET_ALL + """
+# """ + Fore.WHITE + Back.BLUE + " |  | |  |  ___/  (_|  |  ___/  | |  (_|  | " + Style.RESET_ALL + """
+# """ + Fore.WHITE + Back.BLUE + " \__| |__/\____|\___,__|\____|__|  \___,__| " + Style.RESET_ALL + """
+# """ + Fore.WHITE + Back.BLUE + "                                            " + Style.RESET_ALL + """
 # :: hedera-cli :: v{}
 # current Hbar price: {}
 #
@@ -162,7 +168,7 @@ Type help or ? to list commands.\n""".format(version, current_price)
             self.client = Client.forTestnet()
 
     def do_network(self, arg):
-        """Switch network: mainnet | testnet | previewnet
+        """Switch network:
         network mainnet
         network testnet
         network previewnet
@@ -188,12 +194,12 @@ Type help or ? to list commands.\n""".format(version, current_price)
         self.set_prompt()
 
     def do_topic(self, arg):
-        """HCS Topic: create send
-        topic create [memo]  (create a topic with an optional memo) 
-        topic info topic_id  (get info about a topic)
-        topic send topic_id message [[message]]  (send message to topic_id)
-        topic get topic_id [sequence_number]  (get topic message(s).  If you specify a sequence_number,
-                                               you get one message, otherwise, you get all the messages on the topic)
+        """HCS Topic:
+        topic create [memo]              (create a topic with an optional memo) 
+        topic info topic_id              (get info about a topic)
+        topic send topic_id              (send message to topic_id, you will be prompted for message)
+        topic get topic_id [sequence #]  (get topic message(s).  If you specify a sequence_number,
+                                          you get one message, otherwise, you get all the messages on the topic)
         """
         args = arg.split()
         if not args or args[0] not in ('create', 'send', 'info', "get"):
@@ -237,6 +243,12 @@ Type help or ? to list commands.\n""".format(version, current_price)
                 else:
                     print()
                 print("autoRenewPeriod :", info.autoRenewPeriod.toDays(), "days")
+                print("running hash :", end="")
+                if info.runningHash:
+                    print(info.runningHash.toByteArray().tostring().hex())
+                else:
+                    print()
+                print()
 
             except Exception as e:
                 print(e)
@@ -267,16 +279,23 @@ Type help or ? to list commands.\n""".format(version, current_price)
             for msg in msgs:
                 print("sequence_number:", msg['sequence_number'])
                 print("consensus_timestamp:", msg['consensus_timestamp'])
+                print("running hash:", base64.b64decode(msg['running_hash']).hex())
+                print("message:")
                 print(base64.b64decode(msg['message']).decode())
+                print()
 
         elif args[0] == "send":
-            if len(args) < 3:
-                return self.err_return("need topicId and message")
+            if len(args) < 2:
+                return self.err_return("need topicId")
             try:
                 topicId = TopicId.fromString(args[1])
+                msg = input("Type your Message (Entering without message cancels the submission):\n\t> ")
+                if msg.strip() == "":
+                    return self.err_return("Cancelled sending message")
+
                 txn = (TopicMessageSubmitTransaction()
                        .setTopicId(topicId)
-                       .setMessage(" ".join(args[2:])))
+                       .setMessage(msg))
                 receipt = txn.execute(self.client).getReceipt(self.client)
                 print("message sent, sequence #: ", receipt.topicSequenceNumber)
             except Exception as e:
@@ -284,17 +303,14 @@ Type help or ? to list commands.\n""".format(version, current_price)
         self.set_prompt()
 
     def do_account(self, arg):
-        """account: create | balance | delete | info
-        account create  (create an account, account id and privatekey will be printed)
-
-        account info [accoun_id]  (get account info for current account if no accountId is provided,
-                                   or for a different account if accountId is provided)
-
-        account balance [account_id]  (get account balance for current account if no accountId,
+        """account:
+        account create               (create an account, account id and privatekey will be printed)
+        account info [accoun_id]     (get account info for current account if no accountId is provided,
                                       or for a different account if accountId is provided)
-
-        account delete account_id  (delete the account identified by accountId.
-                                   you will be prompted for that account's private key)
+        account balance [account_id] (get account balance for current account if no accountId,
+                                      or for a different account if accountId is provided)
+        account delete account_id    (delete the account identified by accountId.
+                                      you will be prompted for that account's private key)
         """
         args = arg.split()
         if not args or args[0] not in ('create', 'balance', 'delete', 'info'):
@@ -417,18 +433,20 @@ Type help or ? to list commands.\n""".format(version, current_price)
         return contents, filesize
 
     def do_file(self, arg):
-        """Hedera File Service: create | contents | append | delete
-        file create [file_path]
-        file info file_id
-        file contents file_id
-        file append file_id [file_path]
-        file delete file_id
+        """Hedera File Service:
+        file create [file_path]          (create a file, if file_path is provided, file content will be uploaded,
+                                          otherwise, you will be prompted to enter the content)
+        file info file_id                (get info about a file)
+        file contents file_id            (get content of a file)
+        file append file_id [file_path]  (append the file with more contents)
+        file delete file_id              (delete a file)
         """
         args = arg.split()
         if not args or args[0] not in ('create', 'contents', 'info', 'append', 'delete'):
             return self.err_return("invalid file command")
 
         if args[0] == "create":
+            memo = input("file memo [optional]:")
             if len(args) > 1:
                 contents, filesize = self.get_local_file_content(args[1])
                 if not contents:
@@ -449,6 +467,7 @@ Type help or ? to list commands.\n""".format(version, current_price)
                 first_chunk = contents if filesize <= FILE_CREATE_SIZE else contents[:FILE_CREATE_SIZE]
                 try:
                     txn = (FileCreateTransaction()
+                           .setFileMemo(memo)
                            .setKeys(self.operator_key.getPublicKey())
                            .setContents(first_chunk)
                            .setMaxTransactionFee(Hbar(1))
@@ -516,7 +535,7 @@ Type help or ? to list commands.\n""".format(version, current_price)
                     print("canceled")
 
             except Exception as e:
-                print(e)
+                print(e.innermessage)
 
         elif args[0] == "info":
             if len(args) < 2:
@@ -546,6 +565,182 @@ Type help or ? to list commands.\n""".format(version, current_price)
                 print(Style.RESET_ALL)
                 print(contents[:1024])
                 print()
+            except Exception as e:
+                print(e)
+
+        elif args[0] == "delete":
+            if len(args) < 2:
+                return self.err_return("fileId is needed")
+            
+            try:
+                fileId = FileId.fromString(args[1])
+                txn = FileDeleteTransaction().setFileId(fileId).execute(self.client)
+                receipt = txn.getReceipt(self.client)
+            except Exception as e:
+                print(e.innermessage)
+
+    def do_token(self, arg):
+        """Hedera Token Service:
+        token create                           (create a token, you will be prompted for details)
+        token info token_id                    (get info about a token)
+        token associate token_id account_id    (associate token with another account)
+        token kyc token_id account_id          (grant token kyc to another account)
+        token transfer                         (transfer a token, you will be prompted for details)
+        """
+        args = arg.split()
+        if not args or args[0] not in ('create', 'info', 'associate', 'kyc', 'transfer'):
+            return self.err_return("invalid file command")
+
+        if args[0] == "create":
+            try:
+                ttype = int(input("Token type (fungible - 0 or non-fungible - 1, default is 0): "))
+            except ValueError:
+                ttype = 0
+            if ttype > 1:
+                ttype = 0
+            name = input("Token name: ")
+            symbol = input("Token symbol: ")
+
+            if ttype == 0:
+                try:
+                    # TODO: max decimal?
+                    decimals = int(input("Token decimals (0-6 default 0): "))
+                except ValueError:
+                    decimals = 0
+                if decimals > 6:
+                    decimals = 0
+
+                try:
+                    initialSupply = int(input("initial token supply? (default 0): "))
+                except ValueError:
+                    initialSupply = 0
+            else:
+                decimals = 0
+                initialSupply = 0
+            print("Summary:")
+            print("\tToken Type (0:fungible, 1:non-fungible):", ttype)
+            print("\tName:", name)
+            print("\tSymbol:", symbol)
+            print("\tDecimals:", decimals)
+            print("\tInitial supply:", initialSupply)
+            print("It takes ", 1.0/self.hbar_price, "hbars to create a token.")
+
+            initialSupply *= 10 ** decimals
+            
+            isitok = input("\ncontinue? (y-yes or n-no): ").lower()
+            if isitok == "y" or isitok == "yes":
+                pubkey = self.operator_key.getPublicKey()
+                try:
+                    # TODO: bug? if setTokenType and setDecimals/InitialSupply, core dumps
+                    if ttype == 0:
+                        txn = (TokenCreateTransaction()
+                               .setNodeAccountIds(self.one_node())
+                               .setTokenName(name)
+                               .setTokenSymbol(symbol)
+                               .setDecimals(decimals)
+                               .setInitialSupply(initialSupply)
+                               .setTreasuryAccountId(self.operator_id)
+                               .setAdminKey(pubkey)
+                               .setFreezeKey(pubkey)
+                               .setWipeKey(pubkey)
+                               .setKycKey(pubkey)
+                               .setSupplyKey(pubkey)
+                               .setFreezeDefault(False)
+                               .execute(self.client))
+                    else:
+                        txn = (TokenCreateTransaction()
+                               .setNodeAccountIds(self.one_node())
+                               .setTokenName(name)
+                               .setTokenSymbol(symbol)
+                               .setTreasuryAccountId(self.operator_id)
+                               .setTokenType(ttype)
+                               .setAdminKey(pubkey)
+                               .setFreezeKey(pubkey)
+                               .setWipeKey(pubkey)
+                               .setKycKey(pubkey)
+                               .setSupplyKey(pubkey)
+                               .setFreezeDefault(False)
+                               .execute(self.client))
+                    tokenId = txn.getReceipt(self.client).tokenId
+                    print("Token created.  Token_id =", tokenId.toString())
+                except Exception as e:
+                    print(e)
+            else:
+                print("cancelled")
+
+        elif args[0] == "info":
+            if len(args) < 2:
+                return self.err_return("tokenId is needed")
+            
+            try:
+                tokenId = TokenId.fromString(args[1])
+                info = TokenInfoQuery().setTokenId(tokenId).execute(self.client)
+                print("tokenType:", info.tokenType.toString())
+                print("name:", info.name)
+                print("symbol:", info.symbol)
+                print("decimals:", info.decimals)
+                print("totalSupply", info.totalSupply)
+                print("maxSupply", info.maxSupply)
+                print("defaultKycStatus:", info.defaultKycStatus)
+                print("defaultFreezeStatus:", info.defaultFreezeStatus)
+                print("expirationTime:", info.expirationTime.toString())
+                print("autoRenewAccount:", info.autoRenewAccount.toString())
+                print("autoRenewPeriod (days):", info.autoRenewPeriod.toDays())
+                print("customFees:", info.customFees.toArray())
+                print("feeScheduleKey:", info.feeScheduleKey and info.feeScheduleKey.toString())
+                print("kycKey:", info.kycKey and info.kycKey.toString())
+                print("supplyKey:", info.supplyKey and info.supplyKey.toString())
+                print("wipeKey:", info.wipeKey and info.wipeKey.toString())
+            except Exception as e:
+                print(e)
+
+        if args[0] == "associate":
+            if len(args) < 2:
+                return self.err_return("need tokenId")
+
+            try:
+                tokenId = TokenId.fromString(args[1])
+                listOne = ArrayList()
+                listOne.add(tokenId)
+                txn = (TokenAssociateTransaction()
+                       .setAccountId(self.operator_id)
+                       .setTokenIds(listOne)
+                       .freezeWith(self.client)
+                       .sign(self.operator_key)
+                       .execute(self.client))
+                receipt = txn.getReceipt(self.client)
+                print(receipt.status)
+            except Exception as e:
+                print(e)
+
+        if args[0] == "kyc":
+            if len(args) < 3:
+                return self.err_return("need tokenId and accountId")
+            try:
+                tokenId = TokenId.fromString(args[1])
+                accountId = AccountId.fromString(args[2])
+                txn = (TokenGrantKycTransaction()
+                       .setAccountId(accountId)
+                       .setTokenId(tokenId)
+                       .execute(self.client))
+                receipt = txn.getReceipt(self.client)
+                print(receipt.status.toString())
+            except Exception as e:
+                print(e)
+
+        if args[0] == "transfer":
+            try:
+                tokenId = TokenId.fromString(input("token id: "))
+                accountId = AccountId.fromString(input("account id: "))
+                amount = int(input("Enter the amount (number of tokens multiply by 1[0...], number of 0's is the token decimals),\n"
+                                   "For example, if you want to transfer 100.55 and token decimals is 2, you enter 10055.\n"
+                                   "\tamount: "))
+                txn = (TransferTransaction()
+                       .addTokenTransfer(tokenId, self.operator_id, -amount)
+                       .addTokenTransfer(tokenId, accountId, amount)
+                       .execute(self.client))
+                receipt = txn.getReceipt(self.client)
+                print(receipt.status.toString())
             except Exception as e:
                 print(e)
 

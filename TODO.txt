@@ -1,11 +1,11 @@
-token
-readline broken on Linux
-file docstring
-file memo
+contract
 py3.9 problem with pyjnius
 
 ✓ account - info | delete
 ✓ file 
+✓ readline broken on Linux
+✓ file memo
+✓ token
 ✓ topic get message
 ✓ replace private key char with *
 ✓ check java
