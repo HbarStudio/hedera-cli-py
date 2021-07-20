@@ -1,8 +1,10 @@
 import os
 import sys
+import json
 import cmd
 import math
 import base64
+from pprint import pprint
 
 import requests
 from colorama import init, Fore, Back, Style
@@ -33,6 +35,11 @@ from hedera import (
     TokenAssociateTransaction,
     TokenInfoQuery,
     TokenGrantKycTransaction,
+    ContractId,
+    ContractCreateTransaction,
+    ContractFunctionParameters,
+    ContractInfoQuery,
+    ContractCallQuery,
     )
 from jnius import autoclass, cast
 from hedera_cli._version import version
@@ -743,6 +750,155 @@ Type help or ? to list commands.\n""".format(version, current_price)
                 print(receipt.status.toString())
             except Exception as e:
                 print(e)
+
+    def do_contract(self, arg):
+        """Hedera Smart Contract (HTC & HCS recommended for most use cases):
+        contract create            (create a contract, you will be prompted for details)
+        contract call contract_id  (call a contract,
+                                    you will be prompted for function name and parameter)
+        contract info contract_id  (get info about a contract)
+        """
+        args = arg.split()
+        if not args or args[0] not in ('create', 'call', 'info'):
+            return self.err_return("invalid contract command")
+
+        if args[0] == "create":
+            # try:
+            #     initBalance = int(input("initial Hbar balance for this contract?: "))
+            # except ValueError:
+            #     return self.err_return("number must be integer")
+            # if initBalance < 1:
+            #    initBalance = 0
+
+            # TODO: will ask to enter gas if it consume large gas
+            # gas = input("How much gas")
+            # for now just set 1_000_000 gas, around $0.05
+            # contract create is $1, file create is 0.05
+            # cost = int(1.10/self.hbar_price) + initBalance
+            cost = int(1.10/self.hbar_price)
+            confirm = input("It cost %d hbars to create a contract, continue? y/n: " % cost)
+            if confirm.lower() != "y":
+                return self.err_return("cancelled")
+
+            where = input("Enter the contract JSON file path: ")
+            if not os.path.isfile(where):
+                return self.err_return("no such file")
+
+            contract_file = open(where)
+            try:
+                contract_json = json.load(contract_file)
+                contract_file.close()
+            except ValueError:
+                return self.err_return("invalid contract JSON file")
+
+            if "abi" not in contract_json or "bytecode" not in contract_json:
+                return self.err_return("contract JSON file must have abi and bytecode")
+
+            if "contractName" in contract_json:
+                name = contract_json['contractName']
+                print("contract name:", name)
+            else:
+                name = "contract"
+
+            try:
+                txn = (FileCreateTransaction()
+                       .setKeys(self.operator_key.getPublicKey())
+                       .setFileMemo(name)
+                       .setContents(contract_json['bytecode'].encode())
+                       .execute(self.client))
+                receipt = txn.getReceipt(self.client)
+                file_id = receipt.fileId
+                print("contract file created: ", file_id.toString())
+            except Exception as e:
+                return self.err_return(e)
+
+            inputs = contract_json["abi"][0]["inputs"]
+            params = ContractFunctionParameters() 
+            for i in inputs:
+                params.add(input("input - name:" + i['name'] + " type:" + i['type'] + " = "))
+
+            try:
+                # will CONTRACT_REVERT_EXECUTED if setInitialBalance
+                #       .setInitialBalance(Hbar(initBalance))
+                txn = (ContractCreateTransaction()
+                       .setGas(1000000)
+                       .setBytecodeFileId(file_id)
+                       .setAdminKey(self.operator_key)
+                       .setMaxTransactionFee(Hbar(cost))
+                       .execute(self.client))
+                receipt = txn.getReceipt(self.client)
+                print("contract created : ", receipt.contractId.toString())
+            except Exception as e:
+                print(e)
+ 
+        elif args[0] == "call":
+            if len(args) < 2:
+                return self.err_return("need contract_id")
+            try:
+                contractId = ContractId.fromString(args[1])
+            except Exception as e:
+                return self.err_return(e)
+
+            # params = ContractFunctionParameters() 
+            func_name = input("Enter the function name: ")
+            input_params = input("Enter the parameters: ")
+            try:
+                resp = (ContractCallQuery()
+                        .setGas(1000000)
+                        .setContractId(contractId)
+                        .setFunction(func_name)
+                        .execute(self.client))
+            except Exception as e:
+                return self.err_return(e)
+
+            if resp.errorMessage:
+                print(resp.errorMessage)
+            else:
+                print("result:\n", resp.getString(0))
+                print()
+
+        elif args[0] == "info":
+            if len(args) < 2:
+                return self.err_return("need contract_id")
+            try:
+                contractId = ContractId.fromString(args[1])
+            except Exception as e:
+                return self.err_return(e)
+
+            try:
+                info = ContractInfoQuery().setContractId(contractId).execute(self.client)
+                print("accountId:", info.accountId.toString())
+                print("adminKey:", info.adminKey.toString())
+                print("expires:", info.expirationTime.toString())
+                print("autoRenewPeriod (days):", info.autoRenewPeriod.toDays())
+                print("storage:", info.storage)
+                print("memo:", info.contractMemo)
+                print("balance:", info.balance.toString())
+                print("isDeleted:", info.isDeleted)
+            except Exception as e:
+                print(e)
+
+    def do_txn(self, arg):
+        """Transaction info:
+        txn info transaction_id    (get info of a transaction,
+                                    transaction_id is of format: 0.0.accountId-seconds-nanos)
+        """
+        args = arg.split()
+        if not args or args[0] not in ('info'):
+            return self.err_return("invalid txn command")
+
+        if args[0] == "info":
+            if len(args) < 2:
+                return self.err_return("need transaction_id")
+
+            url = "{}/api/v1/transactions/{}".format(mirror_address[self.network], args[1])
+            req = requests.get(url)
+            data = req.json()
+            if '_status' in data:
+                print(data['_status'])
+            elif 'transactions' in data:
+                d = data['transactions'][0]
+                pprint(d)
 
 
 if __name__ == "__main__":
