@@ -1,7 +1,6 @@
 hedera-sdk-py
 colorama
 python-dotenv
-getch
 build
 twine
 requests

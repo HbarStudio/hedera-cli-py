@@ -48,10 +48,11 @@ from hedera import (
 from jnius import autoclass, cast
 from hedera_cli._version import version
 from hedera_cli.price import get_Hbar_price
-if sys.platform == "win32":
-    from msvcrt import getch
-else:
-    from getch import getch
+# getch doesn't work on Mac, so disable for now
+#if sys.platform == "win32":
+#    from msvcrt import getch
+#else:
+#    from getch import getch
 
 
 ArrayList = autoclass('java.util.ArrayList')
@@ -66,24 +67,24 @@ mirror_address = {
     }
 
 
-def getc():
-    c = getch()
-    if hasattr(c, 'decode'):
-        return c.decode()
-    return c
+# def getc():
+#    c = getch()
+#    if hasattr(c, 'decode'):
+#        return c.decode()
+#    return c
 
 
-def getPrivateKey():
-    passwd = ''
-    while True:
-        c = getc()
-        if c == '\r' or c == '\n':
-            break
-        print('*', end='', flush=True)
-        passwd += c
-    print()
-
-    return passwd
+# def getPrivateKey():
+#    passwd = ''
+#    while True:
+#        c = getc()
+#        if c == '\r' or c == '\n':
+#            break
+#        print('*', end='', flush=True)
+#        passwd += c
+#    print()
+#
+#    return passwd
 
 current_price = get_Hbar_price()
 
@@ -153,7 +154,9 @@ Type help or ? to list commands.\n""".format(version, current_price)
         print(Fore.YELLOW + "Operator Account ID (0.0.xxxx): " + Style.RESET_ALL, end='')
         acc_id = input()
         print(Fore.YELLOW + "Private Key: " + Style.RESET_ALL, end='', flush=True)
-        acc_key = getPrivateKey()
+        # this doesn't work on Mac, will fix later
+        # acc_key = getPrivateKey()
+        acc_key = input()
         try:
             self.operator_id = AccountId.fromString(acc_id)
             self.operator_key = PrivateKey.fromString(acc_key)
