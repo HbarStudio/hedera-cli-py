@@ -1,4 +1,6 @@
+token custome fee
 contract
+file delete confirmation
 py3.9 problem with pyjnius
 
 ✓ account - info | delete

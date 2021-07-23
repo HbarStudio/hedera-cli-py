@@ -31,7 +31,7 @@ setuptools.setup(
     ],
     package_dir={"": "src"},
     packages=setuptools.find_packages(where="src"),
-    install_requires=['hedera-sdk-py>=2.0.8',
+    install_requires=['hedera-sdk-py>=2.0.9',
                       'colorama>=0.4.4',
                       'python-dotenv>=0.18.0',
                       'requests>=2.19.1',

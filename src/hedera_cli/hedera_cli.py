@@ -25,6 +25,9 @@ from hedera import (
     TopicMessageSubmitTransaction,
     TopicInfoQuery,
     TokenId,
+    NftId,
+    TokenType,
+    TokenMintTransaction,
     FileId,
     FileInfoQuery,
     FileCreateTransaction,
@@ -34,6 +37,7 @@ from hedera import (
     TokenCreateTransaction,
     TokenAssociateTransaction,
     TokenInfoQuery,
+    TokenNftInfoQuery,
     TokenGrantKycTransaction,
     ContractId,
     ContractCreateTransaction,
@@ -588,14 +592,17 @@ Type help or ? to list commands.\n""".format(version, current_price)
 
     def do_token(self, arg):
         """Hedera Token Service:
-        token create                           (create a token, you will be prompted for details)
-        token info token_id                    (get info about a token)
-        token associate token_id account_id    (associate token with another account)
-        token kyc token_id account_id          (grant token kyc to another account)
-        token transfer                         (transfer a token, you will be prompted for details)
+        token create                          (create a token, you will be prompted for details)
+        token info token_id                   (get info about a token)
+        token mint token_id                   (mint token[s])
+        token nftinfo nft_id                  (get info about a nft, nft_id must be:
+                                               shard.realm.tokenId-checksum@serial#)
+        token associate token_id account_id   (associate token with another account)
+        token kyc token_id account_id         (grant token kyc to another account)
+        token transfer                        (transfer a token, you will be prompted for details)
         """
         args = arg.split()
-        if not args or args[0] not in ('create', 'info', 'associate', 'kyc', 'transfer'):
+        if not args or args[0] not in ('create', 'mint', 'info', 'nftinfo', 'associate', 'kyc', 'transfer'):
             return self.err_return("invalid file command")
 
         if args[0] == "create":
@@ -659,8 +666,8 @@ Type help or ? to list commands.\n""".format(version, current_price)
                                .setNodeAccountIds(self.one_node())
                                .setTokenName(name)
                                .setTokenSymbol(symbol)
+                               .setTokenType(TokenType.NON_FUNGIBLE_UNIQUE)
                                .setTreasuryAccountId(self.operator_id)
-                               .setTokenType(ttype)
                                .setAdminKey(pubkey)
                                .setFreezeKey(pubkey)
                                .setWipeKey(pubkey)
@@ -675,6 +682,27 @@ Type help or ? to list commands.\n""".format(version, current_price)
             else:
                 print("cancelled")
 
+        elif args[0] == "mint":
+            if len(args) < 2:
+                return self.err_return("tokenId is needed")
+
+            try:
+                tokenId = TokenId.fromString(args[1])
+                txn = TokenMintTransaction().setTokenId(tokenId)
+                info = TokenInfoQuery().setTokenId(tokenId).execute(self.client)
+                if info.tokenType == TokenType.NON_FUNGIBLE_UNIQUE:
+                    meta = input("enter the metadata for this NFT")
+                    txn = txn.addMetadata(meta.encode())
+                else:
+                    amount = int(input("How many tokens to mint? : "))
+                    txn = txn.setAmount(amount)
+                txn = txn.execute(self.client)
+                receipt = txn.getReceipt(self.client)
+                print("Token minted:", receipt.status.toString())
+
+            except Exception as e:
+                print(e)
+
         elif args[0] == "info":
             if len(args) < 2:
                 return self.err_return("tokenId is needed")
@@ -682,6 +710,7 @@ Type help or ? to list commands.\n""".format(version, current_price)
             try:
                 tokenId = TokenId.fromString(args[1])
                 info = TokenInfoQuery().setTokenId(tokenId).execute(self.client)
+                print("tokenId:", info.tokenId.toString())
                 print("tokenType:", info.tokenType.toString())
                 print("name:", info.name)
                 print("symbol:", info.symbol)
@@ -701,7 +730,21 @@ Type help or ? to list commands.\n""".format(version, current_price)
             except Exception as e:
                 print(e)
 
-        if args[0] == "associate":
+        elif args[0] == "nftinfo":
+            if len(args) < 2:
+                return self.err_return("nftId is needed")
+            
+            try:
+                nftId = NftId.fromString(args[1])
+                info = TokenNftInfoQuery().byNftId(nftId).execute(self.client)
+                info = info.get(0)  # singleton list
+                print("NFT id:", info.nftId.toString())
+                print("creation time:", info.creationTime.toString())
+                print("metadata:", info.metadata.tostring().decode())
+            except Exception as e:
+                print(e)
+
+        elif args[0] == "associate":
             if len(args) < 2:
                 return self.err_return("need tokenId")
 
@@ -720,7 +763,7 @@ Type help or ? to list commands.\n""".format(version, current_price)
             except Exception as e:
                 print(e)
 
-        if args[0] == "kyc":
+        elif args[0] == "kyc":
             if len(args) < 3:
                 return self.err_return("need tokenId and accountId")
             try:
@@ -735,7 +778,7 @@ Type help or ? to list commands.\n""".format(version, current_price)
             except Exception as e:
                 print(e)
 
-        if args[0] == "transfer":
+        elif args[0] == "transfer":
             try:
                 tokenId = TokenId.fromString(input("token id: "))
                 accountId = AccountId.fromString(input("account id: "))
