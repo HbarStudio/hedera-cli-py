@@ -1,6 +1,7 @@
 # hedera-cli-py
 [Hedera](https://hedera.com/) CLI in Python
 
+[Howto video](https://youtu.be/3AEn4tOGfrk)
 
 ## Install
 
