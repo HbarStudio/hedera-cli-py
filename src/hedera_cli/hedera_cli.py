@@ -279,8 +279,13 @@ Type help or ? to list commands.\n""".format(version, current_price)
             except Exception:
                 return self.err_return("topicId not valid")
 
+            # need to remove "-xxxx" hash from topicId
+            if "-" in args[1]:
+                topicId = args[1][:args[1].index("-")]
+            else:
+                topicId = args[1]
 
-            url = "{}/api/v1/topics/{}/messages".format(mirror_address[self.network], args[1])
+            url = "{}/api/v1/topics/{}/messages".format(mirror_address[self.network], topicId)
             if len(args) > 2:
                 if args[2].isnumeric():
                     seq_num = int(args[2])
@@ -853,7 +858,7 @@ Type help or ? to list commands.\n""".format(version, current_price)
                 print(e)
 
     def do_contract(self, arg):
-        """Hedera Smart Contract (HTC & HCS recommended for most use cases):
+        """Hedera Smart Contract (HTS & HCS recommended for most use cases):
         contract create            (create a contract, you will be prompted for details)
         contract call contract_id  (call a contract,
                                     you will be prompted for function name and parameter)
