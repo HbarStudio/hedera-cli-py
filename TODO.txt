@@ -1,4 +1,4 @@
-token custome fee
+token: fee at create, update, dissociate, feeupdate, freeze/unfreeze, wipe, revokekyc
 contract
 file delete confirmation
 py3.9 problem with pyjnius

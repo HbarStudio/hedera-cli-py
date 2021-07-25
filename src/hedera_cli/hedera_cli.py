@@ -28,6 +28,7 @@ from hedera import (
     NftId,
     TokenType,
     TokenMintTransaction,
+    TokenBurnTransaction,
     FileId,
     FileInfoQuery,
     FileCreateTransaction,
@@ -56,6 +57,7 @@ from hedera_cli.price import get_Hbar_price
 
 
 ArrayList = autoclass('java.util.ArrayList')
+Long = autoclass('java.lang.Long')
 
 FILE_CREATE_SIZE = 5000  # don't know exactly the size, 5000 works, 6000 doesn't
 CHUNK_SIZE = 1024
@@ -598,14 +600,15 @@ Type help or ? to list commands.\n""".format(version, current_price)
         token create                          (create a token, you will be prompted for details)
         token info token_id                   (get info about a token)
         token mint token_id                   (mint token[s])
-        token nftinfo nft_id                  (get info about a nft, nft_id must be:
+        token burn token_id                   (burn token[s])
+        token nftinfo nft_id                  (get info about a nft, nft_id must be of format:
                                                shard.realm.tokenId-checksum@serial#)
         token associate token_id account_id   (associate token with another account)
         token kyc token_id account_id         (grant token kyc to another account)
         token transfer                        (transfer a token, you will be prompted for details)
         """
         args = arg.split()
-        if not args or args[0] not in ('create', 'mint', 'info', 'nftinfo', 'associate', 'kyc', 'transfer'):
+        if not args or args[0] not in ('create', 'mint', 'burn', 'info', 'nftinfo', 'associate', 'kyc', 'transfer'):
             return self.err_return("invalid file command")
 
         if args[0] == "create":
@@ -691,17 +694,56 @@ Type help or ? to list commands.\n""".format(version, current_price)
 
             try:
                 tokenId = TokenId.fromString(args[1])
-                txn = TokenMintTransaction().setTokenId(tokenId)
                 info = TokenInfoQuery().setTokenId(tokenId).execute(self.client)
                 if info.tokenType == TokenType.NON_FUNGIBLE_UNIQUE:
-                    meta = input("enter the metadata for this NFT")
-                    txn = txn.addMetadata(meta.encode())
+                    meta = input("enter the metadata for this NFT: ")
+                    txn = (TokenMintTransaction()
+                           .setTokenId(tokenId)
+                           .addMetadata(meta.encode())
+                           .execute(self.client))
+                    receipt = txn.getReceipt(self.client)
+                    print("Token minted, serial #:", receipt.serials.toArray()[0])
                 else:
                     amount = int(input("How many tokens to mint? : "))
-                    txn = txn.setAmount(amount)
-                txn = txn.execute(self.client)
-                receipt = txn.getReceipt(self.client)
-                print("Token minted:", receipt.status.toString())
+                    txn = (TokenMintTransaction()
+                           .setTokenId(tokenId)
+                           .setAmount(amount)
+                           .execute(self.client))
+                    receipt = txn.getReceipt(self.client)
+                    print("Token minted, total supply =", receipt.totalSupply)
+
+            except Exception as e:
+                print(e)
+
+        elif args[0] == "burn":
+            if len(args) < 2:
+                return self.err_return("tokenId is needed")
+
+            try:
+                tokenId = TokenId.fromString(args[1])
+                txn = TokenBurnTransaction().setTokenId(tokenId)
+                info = TokenInfoQuery().setTokenId(tokenId).execute(self.client)
+                if info.tokenType == TokenType.NON_FUNGIBLE_UNIQUE:
+                    snum = input("enter the serial number(s) for this NFT, \n"
+                                 "(if more than one token, seperate with spaces)\n> ")
+                    snum = [int(a) for a in snum.split()]
+                    serials = ArrayList()
+                    for i in snum:
+                        serials.add(Long(i))
+                    txn = (TokenBurnTransaction()
+                           .setTokenId(tokenId)
+                           .setSerials(serials)
+                           .execute(self.client))
+                    txn.getReceipt(self.client)
+                    print("token burned.")
+                else:
+                    amount = int(input("How many tokens to burn? : "))
+                    txn = (TokenBurnTransaction()
+                           .setTokenId(tokenId)
+                           .setAmount(amount)
+                           .execute(self.client))
+                    receipt = txn.getReceipt(self.client)
+                    print("token burned. total supply now =", receipt.totalSupply)
 
             except Exception as e:
                 print(e)
@@ -738,12 +780,25 @@ Type help or ? to list commands.\n""".format(version, current_price)
                 return self.err_return("nftId is needed")
             
             try:
-                nftId = NftId.fromString(args[1])
-                info = TokenNftInfoQuery().byNftId(nftId).execute(self.client)
-                info = info.get(0)  # singleton list
-                print("NFT id:", info.nftId.toString())
-                print("creation time:", info.creationTime.toString())
-                print("metadata:", info.metadata.tostring().decode())
+                if '@' in args[1]:
+                    nftId = NftId.fromString(args[1])
+                    info = TokenNftInfoQuery().byNftId(nftId).execute(self.client)
+                    #info = info.get(0)  # singleton list
+                else:
+                    tokenId = TokenId.fromString(args[1])
+                    tokenInfo = TokenInfoQuery().setTokenId(tokenId).execute(self.client)
+                    totalSupply = tokenInfo.totalSupply
+                    info = (TokenNftInfoQuery()
+                            .byTokenId(tokenId)
+                            .setStart(0)
+                            .setEnd(totalSupply)
+                            .execute(self.client))
+                for d in info.toArray():
+                    print("NFT id:", d.nftId.toString())
+                    print("creation time:", d.creationTime.toString())
+                    print("metadata:", d.metadata.tostring().decode())
+                    print()
+
             except Exception as e:
                 print(e)
 
@@ -945,6 +1000,19 @@ Type help or ? to list commands.\n""".format(version, current_price)
             elif 'transactions' in data:
                 d = data['transactions'][0]
                 pprint(d)
+
+    def do_hbar(self, arg):
+        """Hbar info:
+        hbar price   (get hbar price)
+        """
+        args = arg.split()
+        if not args or args[0] not in ('price'):
+            return self.err_return("invalid hbar command")
+
+        price = get_Hbar_price(True)
+        print("Hbar price (per Hbar):")
+        for d in ('usd', 'btc', 'eth', 'eur', 'gbp', 'jpy', 'cny'):
+            print(price[d], d)
 
 
 if __name__ == "__main__":
